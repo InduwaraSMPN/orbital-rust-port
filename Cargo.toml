@@ -1,0 +1,82 @@
+﻿[package]
+name = "orbital"
+version = "0.4.8"
+edition = "2024"
+rust-version = "1.90"
+authors = ["CrowKing63"]
+description = "Orbital - selection-triggered text-action launcher (Rust port)"
+build = "build.rs"
+
+[lib]
+name = "orbital"
+path = "src/lib.rs"
+
+[[bin]]
+name = "Orbital"
+path = "src/main.rs"
+
+[features]
+# The UI stack (GPUI fork) is heavy; gate it behind the default "ui" feature so
+# headless logic/platform/services can be checked without building GPUI.
+default = ["ui"]
+ui = ["dep:gpui", "dep:gpui-platform", "dep:gpui-kit", "dep:gpui-tray"]
+
+[dependencies]
+# â”€â”€ UI: upstream Zed GPUI snapshot (Windows: DirectX 11 + DirectWrite) â”€â”€
+gpui = { package = "gpui-pre", version = "=0.3.8", default-features = false, features = ["windows-manifest"], optional = true }
+gpui-platform = { package = "gpui-pre-platform", version = "=0.3.8", default-features = false, optional = true }
+gpui-kit = { version = "0.7.1", optional = true }
+gpui-tray = { version = "0.1", default-features = false, features = ["gpui-kit", "menu-state"], optional = true }
+
+# â”€â”€ Win32 / accessibility â”€â”€
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
+    "Win32_Media_Audio",
+    "Win32_Security_Cryptography",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_StationsAndDesktops",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+uiautomation = "0.25.1"
+
+# â”€â”€ audio / paths / dialogs â”€â”€
+rodio = { version = "0.23.0", default-features = false, features = ["playback", "wav"] }
+dirs = "7.0.0"
+rfd = "0.17.2"
+open = "5.4.4"
+
+# â”€â”€ async / HTTP / serialization â”€â”€
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "time", "sync", "fs", "macros"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "json", "charset"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1.0.229", features = ["derive", "rc"] }
+serde_json = "1.0.154"
+
+# â”€â”€ logging / errors â”€â”€
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+thiserror = "2.0.21"
+tracing-appender = "0.2.5"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+proptest = "1.12.0"
+mockall = "0.15.0"
+wiremock = "0.6.5"
+
+[profile.release]
+opt-level = 2
+
+

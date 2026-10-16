@@ -1,0 +1,111 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          # Determine if pre-release (contains -, e.g. v1.0.0-beta.1)
+          if [[ "$VERSION" == *"-"* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update version in Cargo.toml
+        shell: pwsh
+        run: |
+          $ver = '${{ steps.version.outputs.version }}'
+          $content = Get-Content Cargo.toml -Raw
+          $content = $content -replace '(?m)^(version\s*=\s*")[^"]*(")', "`${1}$ver`${2}"
+          Set-Content Cargo.toml $content
+
+      - name: Install Inno Setup
+        uses: Minionguy62/Inno-Setup-Action@v1
+        with:
+          version: 6.4.3
+
+      # ---------- Build installer ----------
+      - name: Build installer
+        shell: pwsh
+        run: .\scripts\Build-Installer.ps1
+
+      # ---------- Build portable ----------
+      - name: Build portable zip
+        shell: pwsh
+        run: .\scripts\Build-Portable.ps1
+
+      # ---------- Normalize asset names ----------
+      # The C# era published OrbitalSetup.exe; the in-app updater
+      # (orbital-rust-port/src/release_flow.rs) prefers a "Setup"-named installer.
+      - name: Rename installer asset
+        shell: pwsh
+        run: |
+          $ver = '${{ steps.version.outputs.version }}'
+          $src = "dist\Orbital-$ver-Setup.exe"
+          $dst = "dist\OrbitalSetup.exe"
+          if (Test-Path $src) {
+            if (Test-Path $dst) { Remove-Item $dst }
+            Rename-Item $src $dst
+          }
+          Write-Host "=== dist directory contents ==="
+          Get-ChildItem -Path dist | Format-Table Name, Length -AutoSize
+
+      # ---------- Delete stale assets from existing release ----------
+      - name: Delete stale assets from existing release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ steps.version.outputs.tag }}'
+          $json = gh release view $tag --repo '${{ github.repository }}' --json assets 2>$null
+          if ($LASTEXITCODE -eq 0 -and $json) {
+            ($json | ConvertFrom-Json).assets |
+              Where-Object { $_.name -like '*Setup.exe' -or $_.name -like '*.zip' -or $_.name -eq 'RELEASES' } |
+              ForEach-Object {
+                Write-Host "Removing stale asset: $($_.name)"
+                gh release delete-asset $tag $_.name --repo '${{ github.repository }}' --yes
+              }
+          } else {
+            Write-Host "No existing release found for $tag - skipping cleanup."
+          }
+          $global:LASTEXITCODE = 0
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Orbital ${{ steps.version.outputs.tag }}
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            dist/OrbitalSetup.exe
+            dist/Orbital-*-Portable.zip
